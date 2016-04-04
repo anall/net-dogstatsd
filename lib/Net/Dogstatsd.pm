@@ -700,6 +700,111 @@ sub _send_metric
 }
 
 
+=head2 _send_event()
+
+Send event to the stats server.
+
+=cut
+
+sub _send_event
+{
+	my ( $self, %args ) = @_;
+	my $verbose = $self->verbose();
+
+	# Check for mandatory parameters
+	foreach my $arg ( qw( title text ) )
+	{
+		croak "Argument '$arg' is a required argument"
+			if !defined( $args{$arg} ) || ( $args{$arg} eq '' );
+	}
+
+	my $original_title = $args{'title'};
+	# Metric name should only contain alphanumeric, "_", ".". Convert anything else to underscore and warn about substitution
+	# NOTE: Datadog will do this for you anyway, but won't warn you what the actual metric name will become.
+	$args{'title'} =~ s/\n/ /g;
+
+  $args{'text'} =~ s/\\/\\\\/g;
+  $args{'text'} =~ s/\n/\\n/g;
+
+	my $socket = $self->get_socket();
+	return unless defined $socket;
+
+	my $event_string = '_e{' . length($args{'title'}) . ',' . length($args{'text'}) . '}:' . $args{'title'} . '|' . $args{'text'};
+
+	if ( $args{'priority'} )
+	{
+		croak("Invalid priority") unless $args{'priority'} =~ m/^(normal|low)$/;
+		$event_string .= '|p:' . $args{'priority'};
+	}
+
+	if ( $args{'alert_type'} )
+	{
+		croak("Invalid alert type") unless $args{'alert_type'} =~ m/^(error|warning|info|success)$/;
+		$event_string .= '|t:' . $args{'alert_type'};
+	}
+
+	if ( defined $args{'tags'} && scalar ( @{ $args{'tags'} } ) != 0 )
+	{
+		$event_string .= $self->_tag_string($args{'tags'});
+	}
+
+	my $response = IO::Socket::send( $socket, $event_string, 0 );
+	unless (defined $response)
+	{
+		carp( "error sending event [string >$event_string<]: $!" );
+	}
+
+	return;
+}
+
+=head2 _send_event()
+
+Send event to the stats server.
+
+=cut
+
+sub _send_check
+{
+	my ( $self, %args ) = @_;
+	my $verbose = $self->verbose();
+
+	# Check for mandatory parameters
+	foreach my $arg ( qw( name status ) )
+	{
+		croak "Argument '$arg' is a required argument"
+			if !defined( $args{$arg} ) || ( $args{$arg} eq '' );
+	}
+
+	my $original_name = $args{'name'};
+	# Metric name should only contain alphanumeric, "_", ".". Convert anything else to underscore and warn about substitution
+	# NOTE: Datadog will do this for you anyway, but won't warn you what the actual metric name will become.
+	$args{'name'} =~ s/[^a-zA-Z0-9_\.]/_/;
+
+	#TODO change to Log::Any output
+	carp( 'WARNING: converted metric name from >$original_name< to >', $args{'name'}, '<. Names should only contain: a-z, 0-9, underscores, and dots/periods.' )
+		if $args{'name'} ne $original_name;
+
+  croak "ERROR - status is wrong" unless $args{'status'} =~ m/^[0123]$/;
+
+	my $socket = $self->get_socket();
+	return unless defined $socket;
+
+	my $check_string = '_sc|' . $args{'name'} . '|' . $args{'status'};
+
+	if ( defined $args{'tags'} && scalar ( @{ $args{'tags'} } ) != 0 )
+	{
+		$check_string .= $self->_tag_string($args{'tags'});
+	}
+
+	my $response = IO::Socket::send( $socket, $check_string, 0 );
+	unless (defined $response)
+	{
+		carp( "error sending check [string >$check_string<]: $!" );
+	}
+
+	return;
+}
+
 =head1 RUNNING TESTS
 
 By default, only basic tests that do not require a connection to Datadog's
